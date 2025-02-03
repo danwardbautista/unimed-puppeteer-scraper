@@ -156,7 +156,9 @@ async function scrapeProduct(page, url) {
       await delay(DELAY_MS); // Delay before scraping
       const data = await scrapeProduct(page, url);
       if (data) {
-        scrapedData.push({ url, data });
+        const id = url.split('/products/')[1]; // Extract ID from URL
+        scrapedData.push({ url, id, data });
+
       } else {
         console.log(`Scraping failed for ${url}`);
         failedLinks.push(url);
