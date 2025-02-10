@@ -35,13 +35,26 @@ async function scrapeProduct(page, url) {
       await page.waitForSelector('.ProductMeta__Description', { timeout: 10000 });
 
       const productData = await page.evaluate(() => {
+        const createTableHTML = (obj) => {
+          if (!obj || Object.keys(obj).length === 0) return "";
+
+          let table = `<table border="1">`;
+
+          Object.entries(obj).forEach(([key, value]) => {
+            table += `<tr><td>${key}</td><td>${value || ''}</td></tr>`; // Ensures empty values are included
+          });
+
+          table += `</table>`;
+          return table;
+        };
+
         const data = {
           product_name: '',
           part_number: '',
           images: [],
-          oem_reference: {},
-          compatibility: {},
-          technical_specifications: {},
+          oem_reference: '',
+          compatibility: '',
+          technical_specifications: '',
         };
 
         try {
@@ -68,36 +81,49 @@ async function scrapeProduct(page, url) {
 
           // Extract tables in the product description
           const tables = document.querySelectorAll('.ProductMeta__Description .TableWrapper table');
+          const tempData = { oem_reference: {}, compatibility: {}, technical_specifications: {} };
 
           tables.forEach((table) => {
             const rows = table.querySelectorAll('tr');
             let sectionName = '';
 
-            // Determine section name from the first row
-            if (rows.length > 0 && rows[0].querySelector('p strong')) {
-              sectionName = rows[0].innerText.trim().replace(':', '').toLowerCase().replace(/ /g, '_');
+            // Determine section name from first row if possible
+            if (rows.length > 0) {
+              const firstRowStrongTag = rows[0].querySelector('p strong');
+              if (firstRowStrongTag) {
+                sectionName = firstRowStrongTag.innerText.trim().toLowerCase().replace(/ /g, '_');
 
-              if (sectionName.includes('oem_part_number_cross_references')) {
-                sectionName = 'oem_reference';
-              } else if (sectionName.includes('compatibility')) {
-                sectionName = 'compatibility';
-              } else if (sectionName.includes('technical_specifications')) {
-                sectionName = 'technical_specifications';
-              }
-            }
-
-            // Extract table content
-            for (let i = 1; i < rows.length; i++) {
-              const cells = rows[i].querySelectorAll('td');
-              if (cells.length === 2) {
-                const key = cells[0].innerText.trim().toLowerCase().replace(/ /g, '_');
-                const value = cells[1].innerText.trim();
-                if (sectionName && data[sectionName]) {
-                  data[sectionName][key] = value;
+                if (sectionName.includes('oem_part_number_cross_references')) {
+                  sectionName = 'oem_reference';
+                } else if (sectionName.includes('compatibility')) {
+                  sectionName = 'compatibility';
+                } else if (sectionName.includes('technical_specifications')) {
+                  sectionName = 'technical_specifications';
                 }
               }
             }
+
+            // Ensure section name is valid before processing rows
+            if (!sectionName || !tempData[sectionName]) return;
+
+            // Extract table content, ensuring missing values are handled properly
+            rows.forEach((row) => {
+              const cells = row.querySelectorAll('td');
+              if (cells.length === 2) {
+                const key = cells[0].innerText.trim();
+                const value = cells[1].innerText.trim() || ''; // Ensure empty values are still included
+
+                if (key) {
+                  tempData[sectionName][key] = value;
+                }
+              }
+            });
           });
+
+          // Convert extracted data into HTML tables without headers
+          data.oem_reference = createTableHTML(tempData.oem_reference);
+          data.compatibility = createTableHTML(tempData.compatibility);
+          data.technical_specifications = createTableHTML(tempData.technical_specifications);
 
         } catch (error) {
           console.error(`Error extracting data from the page: ${error.message}`);
@@ -113,9 +139,10 @@ async function scrapeProduct(page, url) {
       await delay(2000); // Wait 2 seconds before retrying
     }
   }
-  
+
   return null; // Return null if all retries fail
 }
+
 
 // Main function to scrape all products and save to JSON
 (async () => {
