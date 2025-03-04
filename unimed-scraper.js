@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 
-// Read and parse the product links from productsLink.json
+// Read and parse the product links from product_data.json
 const productLinksData = fs.readFileSync('product_links/product_data.json', 'utf-8');
 const productLinks = JSON.parse(productLinksData); // Assumes an array of objects like [{ "product_link": "https://example.com" }, {...}]
 
@@ -35,15 +35,13 @@ async function scrapeProduct(page, url) {
       await page.waitForSelector('.ProductMeta__Description', { timeout: 10000 });
 
       const productData = await page.evaluate(() => {
+        // Helper function to create an HTML table from an object
         const createTableHTML = (obj) => {
           if (!obj || Object.keys(obj).length === 0) return "";
-
           let table = `<table border="1">`;
-
           Object.entries(obj).forEach(([key, value]) => {
-            table += `<tr><td>${key}</td><td>${value || ''}</td></tr>`; // Ensures empty values are included
+            table += `<tr><td>${key}</td><td>${value || ''}</td></tr>`;
           });
-
           table += `</table>`;
           return table;
         };
@@ -55,6 +53,7 @@ async function scrapeProduct(page, url) {
           oem_reference: '',
           compatibility: '',
           technical_specifications: '',
+          product_category_string: '' // New property for category
         };
 
         try {
@@ -92,7 +91,6 @@ async function scrapeProduct(page, url) {
               const firstRowStrongTag = rows[0].querySelector('p strong');
               if (firstRowStrongTag) {
                 sectionName = firstRowStrongTag.innerText.trim().toLowerCase().replace(/ /g, '_');
-
                 if (sectionName.includes('oem_part_number_cross_references')) {
                   sectionName = 'oem_reference';
                 } else if (sectionName.includes('compatibility')) {
@@ -111,14 +109,16 @@ async function scrapeProduct(page, url) {
               const cells = row.querySelectorAll('td');
               if (cells.length === 2) {
                 const key = cells[0].innerText.trim();
-                const value = cells[1].innerText.trim() || ''; // Ensure empty values are still included
-
+                const value = cells[1].innerText.trim() || ''; // Ensure empty values are included
                 if (key) {
                   tempData[sectionName][key] = value;
                 }
               }
             });
           });
+
+          // Extract category from technical_specifications (assumes key is "Category")
+          data.product_category_string = tempData.technical_specifications['Category'] || '';
 
           // Convert extracted data into HTML tables without headers
           data.oem_reference = createTableHTML(tempData.oem_reference);
@@ -139,10 +139,8 @@ async function scrapeProduct(page, url) {
       await delay(2000); // Wait 2 seconds before retrying
     }
   }
-
   return null; // Return null if all retries fail
 }
-
 
 // Main function to scrape all products and save to JSON
 (async () => {
@@ -185,7 +183,6 @@ async function scrapeProduct(page, url) {
       if (data) {
         const id = url.split('/products/')[1]; // Extract ID from URL
         scrapedData.push({ url, id, data });
-
       } else {
         console.log(`Scraping failed for ${url}`);
         failedLinks.push(url);
@@ -202,7 +199,7 @@ async function scrapeProduct(page, url) {
   fs.writeFileSync(`results/products_${currentDate}.json`, JSON.stringify(scrapedData, null, 2), 'utf-8');
   console.log(`Scraped data saved to results/products_${currentDate}.json`);
 
-  // Save failed links
+  // Save failed links if any
   if (failedLinks.length > 0) {
     fs.writeFileSync(`failed/failed_links_${currentDate}.json`, JSON.stringify(failedLinks, null, 2), 'utf-8');
     console.log(`Failed links saved to failed/failed_links_${currentDate}.json`);
